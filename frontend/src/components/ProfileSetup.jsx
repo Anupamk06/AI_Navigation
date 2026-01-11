@@ -1,6 +1,8 @@
 import React from "react";
 import { Accessibility, Activity, Zap, Volume2, Eye, Vibrate } from "lucide-react";
 
+import api from '../api';
+
 const ProfileSetup = ({ onComplete, savedProfile }) => {
   const [preferences, setPreferences] = React.useState({
     wheelchair: false,
@@ -12,23 +14,50 @@ const ProfileSetup = ({ onComplete, savedProfile }) => {
   });
 
   React.useEffect(() => {
-    if (savedProfile && savedProfile.mobilityType) {
-      setPreferences(prev => ({
-        ...prev,
-        wheelchair: savedProfile.mobilityType.includes('Wheelchair User'),
-        walker: savedProfile.mobilityType.includes('Walker / Crutches'),
-        fatigue: savedProfile.mobilityType.includes('Fatigue / Chronic Pain'),
-        // Map other fields if they exist in future
-      }));
+    if (savedProfile && savedProfile.mobility_type) {
+      // Database uses snake_case JSON or similar, let's parse safely
+      // Note: Backend might send mobility_type as JSON object or array. 
+      // Our controller saved it as JSON array of strings ["Wheelchair", ...] 
+      // Wait, let's strict check how controller saves it.
+      // Controller: JSON.stringify(mobility_type) where mobility_type is passed from body.
+      // So if we pass array, it saves array.
+      // Frontend state 'preferences' is object with booleans.
+      // We should map back and forth or change backend to store object.
+      // Let's map to array for backend to match controller comment: ["Wheelchair", "Fatigue"]
+      // But for now, let's just assume we send the Preferences Object directly as JSON?
+      // Controller: mobility_type = $1. If we send object, it saves object.
+      // Let's send the preferences object directly, it's easier.
+      // But verify if `mobility_type` column is JSONB. Yes it is.
+      
+      const mobility = typeof savedProfile.mobility_type === 'string' 
+          ? JSON.parse(savedProfile.mobility_type) 
+          : savedProfile.mobility_type;
+
+      if (mobility) {
+        setPreferences(prev => ({ ...prev, ...mobility }));
+      }
     }
+     // Also check guidance_preference
+     if (savedProfile && savedProfile.guidance_preference) {
+        setPreferences(prev => ({ ...prev, guidance: savedProfile.guidance_preference }));
+     }
   }, [savedProfile]);
 
   const togglePreference = (key) => {
     setPreferences((prev) => ({ ...prev, [key]: !prev[key] }));
   };
 
-  const handleSubmit = () => {
-    onComplete(preferences);
+  const handleSubmit = async () => {
+    try {
+        await api.put('/profile', {
+            mobility_type: preferences, // Saving the whole object
+            guidance_preference: preferences.guidance
+        });
+        onComplete(preferences);
+    } catch (err) {
+        console.error('Failed to save profile', err);
+        alert('Failed to save profile. Please try again.');
+    }
   };
 
   return (

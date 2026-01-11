@@ -29,3 +29,14 @@ CREATE TABLE IF NOT EXISTS saved_routes (
 
 -- Index for faster lookups
 CREATE INDEX idx_saved_routes_user ON saved_routes(user_id);
+
+-- 4. Alerts Table
+CREATE TABLE IF NOT EXISTS alerts (
+  id SERIAL PRIMARY KEY,
+  type VARCHAR(50) NOT NULL, -- 'Construction', 'Crowd', 'Accident'
+  message TEXT NOT NULL,
+  location_lat DECIMAL,
+  location_lng DECIMAL,
+  severity VARCHAR(20) DEFAULT 'medium', -- 'low', 'medium', 'high'
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);

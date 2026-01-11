@@ -1,24 +1,55 @@
 import React, { useState, useEffect } from 'react';
 import { AlertTriangle, CloudRain, Users, AlertOctagon } from 'lucide-react';
 
+import api from '../api';
+
 const AlertsFeed = () => {
-  const [alerts, setAlerts] = useState([
-    { id: 1, type: 'construction', title: 'Road Work on Main St', time: '2 mins ago', icon: AlertTriangle, color: 'hsl(var(--warning))' },
-    { id: 2, type: 'crowd', title: 'High Foot Traffic near Market', time: '15 mins ago', icon: Users, color: 'hsl(var(--info))' },
-    { id: 3, type: 'weather', title: 'Slippery Surfaces Reported', time: '1 hour ago', icon: CloudRain, color: 'hsl(var(--info))' },
-  ]);
+  const [alerts, setAlerts] = useState([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Simulate incoming new alert
-    const timer = setTimeout(() => {
-      setAlerts(prev => [
-        { id: Date.now(), type: 'blocked', title: 'Elevator Out at Metro Station', time: 'Just now', icon: AlertOctagon, color: 'hsl(var(--danger))' },
-        ...prev
-      ]);
-    }, 5000);
-
-    return () => clearTimeout(timer);
+    const fetchAlerts = async () => {
+      try {
+        const { data } = await api.get('/alerts');
+        // Map backend fields to frontend UI
+        // Backend: { type, message, severity, created_at }
+        // Frontend expects: { id, type, title, time, icon, color }
+        const mappedAlerts = data.map(alert => ({
+          id: alert.id,
+          type: alert.type.toLowerCase(),
+          title: alert.message,
+          time: new Date(alert.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          icon: getIconForType(alert.type),
+          color: getColorForSeverity(alert.severity)
+        }));
+        setAlerts(mappedAlerts);
+        setLoading(false);
+      } catch (err) {
+        console.error('Failed to fetch alerts', err);
+        setLoading(false);
+      }
+    };
+    
+    fetchAlerts();
+    // Optional: Poll every minute
+    const interval = setInterval(fetchAlerts, 60000);
+    return () => clearInterval(interval);
   }, []);
+
+  const getIconForType = (type) => {
+      const lower = type.toLowerCase();
+      if (lower.includes('rain') || lower.includes('weather')) return CloudRain;
+      if (lower.includes('crowd')) return Users;
+      if (lower.includes('accident') || lower.includes('blocked')) return AlertOctagon;
+      return AlertTriangle;
+  };
+
+  const getColorForSeverity = (severity) => {
+      const lower = (severity || 'medium').toLowerCase();
+      if (lower === 'high') return 'hsl(var(--danger))';
+      if (lower === 'low') return 'hsl(var(--info))';
+      return 'hsl(var(--warning))';
+  };
 
   return (
     <div className="fade-in">

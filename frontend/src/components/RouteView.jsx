@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { getRoute, searchAddress } from '../locationService';
 import { AlertTriangle, CheckCircle, Navigation, Clock, User, ArrowRight, Bookmark, ChevronDown } from 'lucide-react';
 import MapComponent from './MapComponent';
+import api from '../api';
 
 const RouteView = ({ request, profile, onBack, onSave, savedRoutes = [], onSelect, mode = 'route' }) => {
   const [routes, setRoutes] = useState([]);
@@ -10,6 +12,7 @@ const RouteView = ({ request, profile, onBack, onSave, savedRoutes = [], onSelec
   const dropdownRef = useRef(null);
 
   const [nearbyHazards, setNearbyHazards] = useState([]);
+  const [activeRouteGeometry, setActiveRouteGeometry] = useState(null);
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -35,48 +38,86 @@ const RouteView = ({ request, profile, onBack, onSave, savedRoutes = [], onSelec
 
   useEffect(() => {
     setLoading(true);
-    const timer = setTimeout(() => {
-      if (mode === 'route') {
-        // Normal Route Simulation
-        setRoutes([
-          {
-            id: 1,
-            type: 'Safest',
-            time: '18 min',
-            distance: '0.8 km',
-            score: 95,
-            hazards: [],
-            details: 'Wide sidewalks, no stairs, ramp access confirmed.'
-          },
-          {
-            id: 2,
-            type: 'Fastest',
-            time: '12 min',
-            distance: '0.6 km',
-            score: 65,
-            hazards: ['Steep Slope (8%)', 'Construction near corner'],
-            details: 'Direct path but has significant incline and road work.'
-          }
-        ]);
-      } else {
-        // Hazard Scan Mode
-        const hazards = [];
-        const types = ['Crowd', 'Construction', 'Obstacle'];
-        for (let i = 0; i < 8; i++) {
-          const type = types[Math.floor(Math.random() * types.length)];
-          hazards.push({
-            type,
-            latOffset: (Math.random() - 0.5) * 0.015,
-            lngOffset: (Math.random() - 0.5) * 0.015,
-            details: type === 'Crowd' ? 'High density' : 'Blocked path',
-          });
-        }
-        setNearbyHazards(hazards);
-      }
-      setLoading(false);
-    }, 800);
 
-    return () => clearTimeout(timer);
+    const fetchRoutes = async () => {
+       if (mode === 'route') {
+           // We need coordinates. Request might have startCoords/destCoords if passed from new RouteRequest.
+           // If not (e.g. simulation or saved route), we might need to geocode them first.
+           let start = request.startCoords;
+           let dest = request.destCoords;
+
+           try {
+                if (!start) {
+                    const res = await searchAddress(request.start);
+                    if (res[0]) start = { lat: res[0].lat, lng: res[0].lng };
+                }
+                if (!dest) {
+                    const res = await searchAddress(request.dest);
+                    if (res[0]) dest = { lat: res[0].lat, lng: res[0].lng };
+                }
+
+                if (start && dest) {
+                    const routeData = await getRoute(start, dest);
+                    if (routeData) {
+                        setRoutes([
+                            {
+                                id: 1,
+                                type: 'Best Route',
+                                time: (routeData.duration / 60).toFixed(0) + ' min',
+                                distance: (routeData.distance / 1000).toFixed(1) + ' km',
+                                score: 95,
+                                hazards: [],
+                                details: 'Fastest route via LocationIQ',
+                                geometry: routeData.geometry // GeoJSON
+                            }
+                        ]);
+                        setActiveRouteGeometry(routeData.geometry);
+                    } else {
+                        // Fallback if API fails or no route
+                        throw new Error('No route found');
+                    }
+                } else {
+                     throw new Error('Could not resolve locations');
+                }
+           } catch (err) {
+               console.error('Routing failed', err);
+               // Fallback to simulation data if API fails (graceful degradation)
+               setRoutes([
+                  {
+                    id: 1,
+                    type: 'Simulation',
+                    time: '15 min',
+                    distance: '1.2 km',
+                    score: 80,
+                    hazards: [],
+                    details: 'Real-time routing unavailable. Showing estimated path.'
+                  }
+               ]);
+           } finally {
+               setLoading(false);
+           }
+       } else {
+           // Hazard Scan Mode - Fetch from Backend
+           try {
+               const { data } = await api.get('/alerts');
+               const mappedHazards = data.map(alert => ({
+                   type: alert.type,
+                   lat: parseFloat(alert.location_lat),
+                   lng: parseFloat(alert.location_lng),
+                   details: alert.message
+               }));
+               setNearbyHazards(mappedHazards);
+           } catch (err) {
+               console.error('Failed to fetch hazards', err);
+               setNearbyHazards([]);
+           } finally {
+               setLoading(false);
+           }
+       }
+    };
+
+    fetchRoutes();
+
   }, [request, mode]);
 
   // Simulate incoming live event
@@ -204,12 +245,13 @@ const RouteView = ({ request, profile, onBack, onSave, savedRoutes = [], onSelec
 
         <div style={{ flex: 1, borderRadius: 'var(--radius-md)', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.1)' }}>
           <MapComponent 
-            startCoords={request.start} 
-            endCoords={mode === 'route' ? request.dest : null} 
+            startCoords={request.startCoords} // Pass coords if available
+            endCoords={request.destCoords}     // Pass coords if available
+            startName={request.start}          // Pass name for fallback geocoding
+            endName={request.dest}             // Pass name for fallback geocoding
             obstacles={alert ? [{ message: alert.msg }] : []}
             nearbyHazards={nearbyHazards}
-            // Passing a style prop or ensuring MapComponent fills flexible height is key. 
-            // We'll update MapComponent next to ensure it takes 100% height of parent if container has height.
+            routeGeometry={activeRouteGeometry}
           />
         </div>
       </div>

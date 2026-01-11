@@ -1,11 +1,14 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Send, Bot, User } from 'lucide-react';
 
+import api from '../api';
+
 const ChatInterface = () => {
   const [messages, setMessages] = useState([
     { id: 1, sender: 'bot', text: 'Hello! I am your Accessible Navigation Assistant. How can I help you today?' }
   ]);
   const [input, setInput] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
   const messagesEndRef = useRef(null);
 
   const scrollToBottom = () => {
@@ -14,26 +17,23 @@ const ChatInterface = () => {
 
   useEffect(scrollToBottom, [messages]);
 
-  const handleSend = () => {
-    if (!input.trim()) return;
+  const handleSend = async () => {
+    if (!input.trim() || isLoading) return;
 
     const userMsg = { id: Date.now(), sender: 'user', text: input };
     setMessages(prev => [...prev, userMsg]);
     setInput('');
+    setIsLoading(true);
 
-    // Simulate AI response
-    setTimeout(() => {
-      let botText = "I can help with that. Where would you like to go?";
-      if (input.toLowerCase().includes('hello') || input.toLowerCase().includes('hi')) {
-        botText = "Hi there! Ready to plan a safe route?";
-      } else if (input.toLowerCase().includes('ramp')) {
-        botText = "I can prioritize routes with wheelchair ramps. Please update your profile settings to ensure this is always verified.";
-      } else if (input.toLowerCase().includes('help')) {
-        botText = "I can assist with route planning, obstacle reporting, or adjusting your mobility profile.";
-      }
-
-      setMessages(prev => [...prev, { id: Date.now() + 1, sender: 'bot', text: botText }]);
-    }, 1000);
+    try {
+      const { data } = await api.post('/chat', { message: userMsg.text });
+      setMessages(prev => [...prev, { id: Date.now() + 1, sender: 'bot', text: data.reply }]);
+    } catch (err) {
+      console.error(err);
+      setMessages(prev => [...prev, { id: Date.now() + 1, sender: 'bot', text: "Sorry, I'm having trouble connecting right now." }]);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleKeyPress = (e) => {

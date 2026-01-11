@@ -1,67 +1,146 @@
-import React from 'react';
-import { MapPin, Navigation, Search, ArrowUpDown, Plus, X, ArrowRight } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { MapPin, Navigation, Search, ArrowUpDown, Plus, X, ArrowRight, Loader } from 'lucide-react';
+import { getCurrentLocation, searchAddress } from '../locationService';
 
 const RouteRequest = ({ onSearch, profile, savedRoutes = [] }) => {
-  const [start, setStart] = React.useState('Current Location');
-  const [dest, setDest] = React.useState('');
-  const [stops, setStops] = React.useState([]); // Array of stop locations
-  const [isSearching, setIsSearching] = React.useState(false);
+  const [start, setStart] = useState('Current Location');
+  const [startCoords, setStartCoords] = useState(null);
+  
+  const [dest, setDest] = useState('');
+  const [destCoords, setDestCoords] = useState(null);
+
+  const [stops, setStops] = useState([]); // Array of { value, coords } objects
+  
+  const [isSearching, setIsSearching] = useState(false);
+  
+  const [destSuggestions, setDestSuggestions] = useState([]);
+  const [startSuggestions, setStartSuggestions] = useState([]);
+  const [activeSuggestionField, setActiveSuggestionField] = useState(null); // 'start', 'dest', or 'stop-Index'
+
+  // Debounce helper
+  useEffect(() => {
+    const timer = setTimeout(() => {
+        if (activeSuggestionField === 'dest' && dest && dest.length > 2) {
+            searchAddress(dest).then(setDestSuggestions);
+        } else if (activeSuggestionField === 'start' && start && start !== 'Current Location' && start.length > 2) {
+            searchAddress(start).then(setStartSuggestions);
+        }
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [dest, start, activeSuggestionField]);
+
+  // Initial Location
+  useEffect(() => {
+    if (start === 'Current Location') {
+        getCurrentLocation()
+            .then(pos => setStartCoords({ lat: pos.lat, lng: pos.lng }))
+            .catch(err => console.warn('Location access denied', err));
+    }
+  }, []);
 
   const handleSearch = (e) => {
     e.preventDefault();
     if (!dest) return;
     
     setIsSearching(true);
-    // Simulate API delay
-    setTimeout(() => {
-      onSearch({ start, dest, stops });
-    }, 1500);
+    // Pass coordinates if we have them, otherwise just strings and let Map component (or backend) resolve them?
+    // Better to ensure we have coords. If not, trigger a search for the best match.
+    // For now, let's assume user picked from dropdown or we just pass available data.
+    
+    onSearch({ 
+        start, 
+        startCoords, 
+        dest, 
+        destCoords, 
+        stops: stops.map(s => s.value) 
+    });
+    setIsSearching(false);
   };
 
   const handleFlip = () => {
-    const temp = start;
+    const tempStart = start;
+    const tempStartCoords = startCoords;
     setStart(dest);
-    setDest(temp);
+    setStartCoords(destCoords);
+    setDest(tempStart);
+    setDestCoords(tempStartCoords);
   };
 
-  const handleAddStop = () => {
-    setStops([...stops, '']);
+  const handleSelectSuggestion = (field, item) => {
+      if (field === 'dest') {
+          setDest(item.display_name);
+          setDestCoords({ lat: item.lat, lng: item.lng });
+          setDestSuggestions([]);
+      } else if (field === 'start') {
+          setStart(item.display_name);
+          setStartCoords({ lat: item.lat, lng: item.lng });
+          setStartSuggestions([]);
+      }
+      setActiveSuggestionField(null);
   };
 
-  const handleStopChange = (index, value) => {
-    const newStops = [...stops];
-    newStops[index] = value;
-    setStops(newStops);
-  };
-
-  const handleRemoveStop = (index) => {
-    const newStops = stops.filter((_, i) => i !== index);
-    setStops(newStops);
+  const handleUseCurrentLocation = () => {
+      setStart('Current Location');
+      setStartSuggestions([]);
+      getCurrentLocation()
+          .then(pos => setStartCoords({ lat: pos.lat, lng: pos.lng }))
+          .catch(err => {
+              alert('Could not get location.');
+              setStart('');
+          });
   };
 
   return (
-    <div className="card fade-in">
+    <div className="card fade-in" style={{ position: 'relative' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
         <h2 style={{ color: 'hsl(var(--primary))', margin: 0 }}>Where to?</h2>
         <div style={{ fontSize: '0.8rem', padding: '4px 12px', background: 'rgba(255,255,255,0.05)', borderRadius: '100px' }}>
-          Profile: {profile.wheelchair ? 'Wheelchair' : profile.walker ? 'Walker' : 'Standard'}
+          Profile: {profile?.wheelchair ? 'Wheelchair' : profile?.walker ? 'Walker' : 'Standard'}
         </div>
       </div>
 
       <form onSubmit={handleSearch}>
         {/* Start Location */}
-        <div className="input-group" style={{ marginBottom: '12px' }}>
+        <div className="input-group" style={{ marginBottom: '12px', position: 'relative' }}>
           <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
             <MapPin size={20} style={{ position: 'absolute', left: '16px', color: 'hsl(var(--primary))' }} />
             <input
               type="text"
               className="input-field"
               value={start}
-              onChange={(e) => setStart(e.target.value)}
+              onChange={(e) => {
+                  setStart(e.target.value);
+                  setActiveSuggestionField('start');
+              }}
+              onFocus={() => setActiveSuggestionField('start')}
               style={{ paddingLeft: '48px', flex: 1 }}
               placeholder="Start Location"
             />
           </div>
+          {/* Start Suggestions */}
+          {activeSuggestionField === 'start' && (startSuggestions.length > 0 || start === '') && (
+              <div className="suggestions-dropdown" style={{ 
+                  position: 'absolute', top: '100%', left: 0, right: 0, 
+                  background: 'hsl(var(--bg-card))', border: '1px solid rgba(255,255,255,0.1)', 
+                  zIndex: 20, borderRadius: '8px', overflow: 'hidden',
+                  marginTop: '4px'
+              }}>
+                 {start !== 'Current Location' && (
+                     <div 
+                        onClick={handleUseCurrentLocation}
+                        style={{ padding: '10px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', color: 'hsl(var(--primary))' }}
+                     >
+                         <Navigation size={14} /> Use Current Location
+                     </div>
+                 )}
+                 {startSuggestions.map((item, i) => (
+                     <div key={i} onClick={() => handleSelectSuggestion('start', item)} style={{ padding: '10px', cursor: 'pointer', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+                         {item.display_name}
+                         <div style={{ fontSize: '0.75rem', color: 'hsl(var(--text-muted))' }}>{item.type}</div>
+                     </div>
+                 ))}
+              </div>
+          )}
         </div>
 
         {/* Flip Button */}
@@ -71,88 +150,46 @@ const RouteRequest = ({ onSearch, profile, savedRoutes = [] }) => {
             onClick={handleFlip}
             style={{ 
               background: 'rgba(255,255,255,0.05)', 
-              border: 'none', 
-              borderRadius: '50%', 
-              width: '32px', 
-              height: '32px', 
-              display: 'flex', 
-              alignItems: 'center', 
-              justifyContent: 'center',
-              cursor: 'pointer',
-              color: 'hsl(var(--text-muted))'
+              border: 'none', borderRadius: '50%', width: '32px', height: '32px', 
+              display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'hsl(var(--text-muted))'
             }}
-            title="Flip Start and Destination"
           >
             <ArrowUpDown size={16} />
           </button>
         </div>
 
-        {/* Intermediate Stops */}
-        {stops.map((stop, index) => (
-          <div key={index} className="input-group" style={{ marginBottom: '12px' }}>
-             <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-               <div style={{ position: 'absolute', left: '19px', width: '6px', height: '6px', borderRadius: '50%', background: 'hsl(var(--text-muted))' }}></div>
-               <input
-                 type="text"
-                 className="input-field"
-                 value={stop}
-                 onChange={(e) => handleStopChange(index, e.target.value)}
-                 style={{ paddingLeft: '48px', flex: 1 }}
-                 placeholder={`Stop ${index + 1}`}
-                 autoFocus
-               />
-               <button 
-                 type="button"
-                 onClick={() => handleRemoveStop(index)}
-                 style={{ 
-                    position: 'absolute', 
-                    right: '12px', 
-                    background: 'none', 
-                    border: 'none', 
-                    color: 'hsl(var(--text-muted))', 
-                    cursor: 'pointer' 
-                 }}
-               >
-                 <X size={16} />
-               </button>
-             </div>
-          </div>
-        ))}
-
-        {/* Add Stop Button */}
-        <div style={{ marginBottom: '16px' }}>
-          <button 
-            type="button" 
-            onClick={handleAddStop}
-            style={{ 
-              background: 'none', 
-              border: 'none', 
-              color: 'hsl(var(--primary))', 
-              fontSize: '0.85rem', 
-              display: 'flex', 
-              alignItems: 'center', 
-              gap: '6px', 
-              cursor: 'pointer',
-              padding: '0'
-            }}
-          >
-            <Plus size={16} /> Add stop
-          </button>
-        </div>
-
         {/* Destination */}
-        <div className="input-group" style={{ marginBottom: '24px' }}>
+        <div className="input-group" style={{ marginBottom: '24px', position: 'relative' }}>
           <div style={{ position: 'relative' }}>
             <Navigation size={20} style={{ position: 'absolute', left: '16px', top: '50%', transform: 'translateY(-50%)', color: 'hsl(var(--secondary))' }} />
             <input
               type="text"
               className="input-field"
               value={dest}
-              onChange={(e) => setDest(e.target.value)}
+              onChange={(e) => {
+                  setDest(e.target.value);
+                  setActiveSuggestionField('dest');
+              }}
+              onFocus={() => setActiveSuggestionField('dest')}
               style={{ paddingLeft: '48px' }}
               placeholder="Enter Destination"
             />
           </div>
+          {/* Dest Suggestions */}
+          {activeSuggestionField === 'dest' && destSuggestions.length > 0 && (
+              <div className="suggestions-dropdown" style={{ 
+                  position: 'absolute', top: '100%', left: 0, right: 0, 
+                  background: 'hsl(var(--bg-card))', border: '1px solid rgba(255,255,255,0.1)', 
+                  zIndex: 20, borderRadius: '8px', overflow: 'hidden', marginTop: '4px'
+              }}>
+                 {destSuggestions.map((item, i) => (
+                     <div key={i} onClick={() => handleSelectSuggestion('dest', item)} style={{ padding: '10px', cursor: 'pointer', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+                         {item.display_name}
+                         <div style={{ fontSize: '0.75rem', color: 'hsl(var(--text-muted))' }}>{item.type}</div>
+                     </div>
+                 ))}
+              </div>
+          )}
         </div>
 
         <button 
@@ -161,75 +198,13 @@ const RouteRequest = ({ onSearch, profile, savedRoutes = [] }) => {
           disabled={isSearching}
           style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '10px' }}
         >
-          {isSearching ? (
-            <>Finding Safe Route...</>
-          ) : (
-            <>
-              <Search size={20} />
-              Find Safe Route
-            </>
-          )}
+          {isSearching ? <><Loader className="spin" size={20} /> Finding Route...</> : <><Search size={20} /> Find Safe Route</>}
         </button>
       </form>
 
-      {/* Suggestion / Recent */}
-      <div style={{ marginTop: '24px' }}>
-        <h4 style={{ fontSize: '0.9rem', color: 'hsl(var(--text-muted))', marginBottom: '12px' }}>Recent Places</h4>
-        {[
-          { name: 'Central Park', type: 'Park' }, 
-          { name: 'City Library', type: 'Public' }, 
-          { name: 'Met General Hospital', type: 'Medical' }
-        ].map((place, i) => (
-          <div 
-            key={i} 
-            onClick={() => setDest(place.name)}
-            style={{ 
-              padding: '12px', 
-              borderBottom: '1px solid rgba(255,255,255,0.05)', 
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between'
-            }}
-          >
-            <span>{place.name}</span>
-            <span style={{ fontSize: '0.75rem', color: 'hsl(var(--text-muted))' }}>{place.type}</span>
-          </div>
-        ))}
-      </div>
-
-      {/* Saved Routes */}
-      {savedRoutes.length > 0 && (
-        <div style={{ marginTop: '24px' }}>
-          <h4 style={{ fontSize: '0.9rem', color: 'hsl(var(--primary))', marginBottom: '12px' }}>Saved Routes</h4>
-          {savedRoutes.map((route) => (
-            <div 
-              key={route.id} 
-              onClick={() => {
-                setStart(route.start);
-                setDest(route.dest);
-                setStops(route.stops || []);
-              }}
-              style={{ 
-                padding: '12px', 
-                background: 'rgba(var(--primary-rgb), 0.05)',
-                borderRadius: '8px',
-                marginBottom: '8px',
-                cursor: 'pointer',
-                border: '1px solid rgba(255,255,255,0.05)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between'
-              }}
-            >
-              <div>
-                <div style={{ fontWeight: '600', fontSize: '0.9rem' }}>{route.dest}</div>
-                <div style={{ fontSize: '0.75rem', color: 'hsl(var(--text-muted))' }}>From: {route.start} • {route.date}</div>
-              </div>
-              <ArrowRight size={16} color="hsl(var(--primary))" />
-            </div>
-          ))}
-        </div>
+      {/* Close suggestions on background click */}
+      {activeSuggestionField && (
+          <div onClick={() => setActiveSuggestionField(null)} style={{ position: 'fixed', inset: 0, zIndex: 10 }} />
       )}
     </div>
   );

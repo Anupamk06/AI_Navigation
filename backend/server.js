@@ -21,6 +21,8 @@ app.get('/', (req, res) => {
 app.use('/api/auth', require('./routes/authRoutes'));
 app.use('/api/profile', require('./routes/profileRoutes'));
 app.use('/api/routes', require('./routes/routeRoutes'));
+app.use('/api/alerts', require('./routes/alertsRoutes'));
+app.use('/api/chat', require('./routes/chatRoutes'));
 
 // Error Handling Middleware
 app.use((err, req, res, next) => {

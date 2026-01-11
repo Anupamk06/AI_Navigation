@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { User, Lock, Mail, ArrowRight } from 'lucide-react';
+import api from '../api';
 
 const AuthPage = ({ onLogin }) => {
   const [isLogin, setIsLogin] = useState(true);
@@ -15,44 +16,36 @@ const AuthPage = ({ onLogin }) => {
     setError('');
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
 
-    if (isLogin) {
-      // LOGIN LOGIC
-      const storedUsers = JSON.parse(localStorage.getItem('user_db') || '[]');
-      const user = storedUsers.find(u => u.email === formData.email && u.password === formData.password);
-      
-      if (user) {
-        onLogin(user);
+    try {
+      if (isLogin) {
+        // LOGIN LOGIC
+        const { data } = await api.post('/auth/login', {
+          email: formData.email,
+          password: formData.password
+        });
+        // data = { message, token, user }
+        onLogin(data);
       } else {
-        setError('Invalid email or password.');
-      }
-    } else {
-      // SIGN UP LOGIC
-      if (!formData.name || !formData.email || !formData.password) {
-        setError('All fields are required.');
-        return;
-      }
+        // SIGN UP LOGIC
+        if (!formData.name || !formData.email || !formData.password) {
+          setError('All fields are required.');
+          return;
+        }
 
-      const storedUsers = JSON.parse(localStorage.getItem('user_db') || '[]');
-      if (storedUsers.find(u => u.email === formData.email)) {
-        setError('User already exists. Please login.');
-        return;
+        const { data } = await api.post('/auth/signup', {
+          name: formData.name,
+          email: formData.email,
+          password: formData.password
+        });
+        onLogin(data);
       }
-
-      const newUser = { 
-        id: Date.now(), 
-        name: formData.name, 
-        email: formData.email, 
-        password: formData.password, // In a real app, hash this!
-        profile: {} // Empty profile to be filled later
-      };
-
-      storedUsers.push(newUser);
-      localStorage.setItem('user_db', JSON.stringify(storedUsers));
-      onLogin(newUser);
+    } catch (err) {
+      console.error(err);
+      setError(err.response?.data?.message || 'Authentication failed');
     }
   };
 

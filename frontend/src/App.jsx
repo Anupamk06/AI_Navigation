@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import api from './api';
 import { Map, MessageSquare, Bell, User, Radar } from 'lucide-react';
 import ProfileSetup from './components/ProfileSetup';
 import RouteRequest from './components/RouteRequest';
@@ -17,34 +18,53 @@ function App() {
   const [savedRoutes, setSavedRoutes] = useState([]);
 
   useEffect(() => {
-    // Check for logged in user session (simplified for demo)
-    const savedUser = localStorage.getItem('currentUser');
-    if (savedUser) {
-      setUser(JSON.parse(savedUser));
-    }
-    
-    // Load saved routes
-    const storedRoutes = localStorage.getItem('savedRoutes');
-    if (storedRoutes) {
-      setSavedRoutes(JSON.parse(storedRoutes));
-    }
+    const initAuth = async () => {
+      const token = localStorage.getItem('token');
+      if (token) {
+        try {
+          const { data } = await api.get('/auth/me');
+          setUser(data);
+          loadSavedRoutes();
+        } catch (err) {
+          console.error('Failed to restore session', err);
+          localStorage.removeItem('token');
+        }
+      }
+    };
+    initAuth();
   }, []);
 
-  const handleLogin = (userData) => {
-    setUser(userData);
-    localStorage.setItem('currentUser', JSON.stringify(userData));
+  const loadSavedRoutes = async () => {
+    try {
+      const { data } = await api.get('/routes');
+      setSavedRoutes(data);
+    } catch (err) {
+      console.error('Failed to load routes', err);
+    }
+  };
+
+  const handleLogin = (data) => {
+    // data should be { user, token }
+    setUser(data.user);
+    localStorage.setItem('token', data.token);
     setActiveTab('navigation');
+    loadSavedRoutes();
   };
 
   const handleLogout = () => {
     setUser(null);
-    localStorage.removeItem('currentUser');
+    localStorage.removeItem('token');
     setActiveTab('navigation');
+    setSavedRoutes([]);
+    setProfile(null);
   };
 
   // Navigation Logic
   const handleProfileComplete = (profileData) => {
-    setProfile(profileData);
+    // This is handled in ProfileSetup via API now, but we update local state
+    setProfile(profileData); // Optional: re-fetch from API to be sure
+    // Update user.profile locally for immediate UI update
+    setUser(prev => ({ ...prev, profile: profileData }));
     setNavStep(2);
   };
 
@@ -53,25 +73,19 @@ function App() {
     setNavStep(3);
   };
 
-  const handleSaveRoute = (routeData) => {
-    const newRoutes = [...savedRoutes, { ...routeData, id: Date.now() }];
-    setSavedRoutes(newRoutes);
-    localStorage.setItem('savedRoutes', JSON.stringify(newRoutes));
-    alert('Route saved successfully!');
+  const handleSaveRoute = async (routeData) => {
+    try {
+       const { data } = await api.post('/routes', routeData);
+       setSavedRoutes(prev => [data, ...prev]);
+       alert('Route saved successfully!');
+    } catch (err) {
+       console.error(err);
+       alert('Failed to save route.');
+    }
   };
 
   const handleSelectRoute = (savedRoute) => {
     setRequest({ start: savedRoute.start, dest: savedRoute.dest, stops: savedRoute.stops || [] });
-    // Optional: Auto-navigate to map or just fill inputs
-    // For now, let's just fill inputs by passing data to RouteRequest via props, 
-    // OR directly trigger search if we want auto-play. 
-    // Let's passed it to RouteRequest to autofill.
-    // Actually, RouteRequest needs to know about this selection. 
-    // Easier way: Update a 'selectedRoute' state or just pass the search directly if we want to skip step 2?
-    // User asked "choose any of route that he saved previously". 
-    // Usually means picking it loads it.
-    // Let's pass the saved routes to RouteRequest so user can pick there. 
-    // If specific logic needed in App, we can add it.
   };
 
   const handleBack = () => {
